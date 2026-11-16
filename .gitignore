@@ -1,0 +1,5 @@
+.env
+state/scrip_master_nse.json
+__pycache__/
+reports/
+.pytest_cache/

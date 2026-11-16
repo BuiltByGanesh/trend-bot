@@ -1,0 +1,12 @@
+pandas>=2.0
+numpy
+pyyaml
+requests
+yfinance>=0.2.54
+python-dotenv
+smartapi-python
+pyotp
+logzero
+websocket-client
+tabulate
+pytest

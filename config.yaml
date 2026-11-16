@@ -1,0 +1,65 @@
+# ===== Intraday 5-min opening-range breakout bot (NSE, Angel One MIS) =====
+# These are STARTING parameters to test, not proven settings.
+mode: alerts             # alerts = Telegram buy/exit suggestions only | paper | live (needs CONFIRM_LIVE=YES)
+data_source: angel       # angel | yahoo  (yahoo only has ~60 days of 5-min data)
+
+# Liquid large caps with tight spreads
+watchlist: [RELIANCE, HDFCBANK, ICICIBANK, INFY, TCS, SBIN, LT, AXISBANK, KOTAKBANK, BHARTIARTL, ITC, HINDUNILVR]
+# Nifty 50 has no volume, so its VWAP can't be computed. NIFTYBEES (a Nifty ETF) stands in for it.
+market_proxy: NIFTYBEES
+
+strategy:
+  bar_minutes: 5
+  opening_range_end: "09:30"   # first 15-min high = high of the 09:15, 09:20, 09:25 candles
+  entry_window: ["09:30", "14:30"]   # signal candle must CLOSE inside this window
+  ema_fast: 9
+  ema_slow: 21
+  atr_period: 14
+  volume_mult: 1.5
+  volume_lookback: 20
+  initial_stop_atr: 1.5
+  trail_stop_atr: 1.5
+  max_entries_per_stock: 2     # = first entry + one re-entry (fresh signal required)
+  eod_exit: "15:10"            # start closing all positions
+
+risk:
+  capital: 100000
+  risk_per_trade_pct: 0.25
+  max_open_risk_pct: 0.75      # total risk to stops across open positions
+  daily_loss_limit_pct: 1.0    # realised + unrealised + costs; hit -> flatten and stop for the day
+  max_entries_per_day: 4
+  max_consecutive_losses: 3
+  leverage: 5                  # Angel MIS intraday (stock-dependent, up to 5x)
+  max_position_value_pct: 100  # each position's value capped at this % of capital
+
+costs:                         # Angel One equity intraday (verify on angelone.in/pricing)
+  brokerage_flat: 20           # per executed order, ...
+  brokerage_pct: 0.1           # ... or 0.1% if lower,
+  brokerage_min: 5             # ... minimum Rs 5
+  stt_sell_pct: 0.025
+  exchange_txn_pct: 0.0030699
+  sebi_pct: 0.0001
+  stamp_buy_pct: 0.003
+  gst_pct: 18
+  slippage_pct: 0.03           # each market entry/exit (spread + impact)
+  stop_slippage_pct: 0.05      # extra on stop fills
+
+live:
+  data_settle_seconds: 8       # wait after candle close before fetching it
+  poll_seconds: 15             # SL / loss-limit checks between candles
+  max_spread_pct: 0.05         # skip entry if the bid-ask spread is wider
+  sl_limit_buffer_pct: 0.5     # SL-limit price = trigger - 0.5%
+  stale_after_minutes: 7       # no new entries if the latest candle is older than this
+  order_wait_seconds: 30
+  exit_retries: 3
+
+backtest:
+  days: 365                    # Angel history; yahoo is capped at ~59
+  out_of_sample_pct: 30        # last 30% of days are unseen data
+  sideways_efficiency: 0.3     # |close-open| / (high-low) of the market proxy below this = sideways day
+
+telegram:
+  enabled: true
+sheet:
+  enabled: true
+  webhook_url: ""              # Apps Script web-app URL (env SHEET_WEBHOOK_URL overrides)

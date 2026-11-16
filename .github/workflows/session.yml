@@ -1,0 +1,42 @@
+# Sends Telegram BUY / EXIT suggestions all market day (mode in config.yaml), in two
+# back-to-back sessions because a GitHub job may run 6h max. Free on a public repo.
+name: Trading session
+on:
+  workflow_dispatch:
+    inputs:
+      until: {description: "Hand over at HH:MM (blank = run to EOD)", default: ""}
+  schedule:
+    - cron: "35 3 * * 1-5"   # 09:05 IST  -> session 1, hands over at 12:00
+    - cron: "20 6 * * 1-5"   # 11:50 IST  -> session 2 (waits for session 1), runs to EOD
+concurrency: {group: paper-session, cancel-in-progress: false}
+permissions: {contents: write}
+jobs:
+  session:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      TZ: Asia/Kolkata
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      ANGEL_API_KEY: ${{ secrets.ANGEL_API_KEY }}
+      ANGEL_CLIENT_CODE: ${{ secrets.ANGEL_CLIENT_CODE }}
+      ANGEL_MPIN: ${{ secrets.ANGEL_MPIN }}
+      ANGEL_TOTP_SECRET: ${{ secrets.ANGEL_TOTP_SECRET }}
+      SHEET_WEBHOOK_URL: ${{ secrets.SHEET_WEBHOOK_URL }}
+      SHEET_TOKEN: ${{ secrets.SHEET_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11", cache: pip}
+      - run: pip install -r requirements.txt
+      - name: Trade
+        run: |
+          UNTIL="${{ github.event.inputs.until }}"
+          if [ "${{ github.event.schedule }}" = "35 3 * * 1-5" ]; then UNTIL="12:00"; fi
+          python main.py live ${UNTIL:+--until $UNTIL}
+      - name: Save state for the next session
+        if: always()
+        run: |
+          git config user.name trend-bot && git config user.email trend-bot@users.noreply.github.com
+          git add -f state/live_state.json 2>/dev/null || true
+          git diff --cached --quiet || (git commit -m "state $(date '+%F %H:%M') [skip ci]" && git pull --rebase -q && git push -q)
