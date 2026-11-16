@@ -71,7 +71,7 @@ def test_entry_places_stop_at_broker(tmp_path):
     p = t.st["positions"]["SBIN"]
     assert p["qty"] == 100 and p["stop"] == pytest.approx(498.5)
     assert b.orders()[p["sl_id"]]["status"] == "trigger_pending"
-    assert rows and rows[0][0] == "Signals"
+    assert {"Signals", "Trade_Log"} <= {tab for tab, _ in rows}
 
 
 def test_duplicate_signal_never_sends_twice(tmp_path):
@@ -192,3 +192,18 @@ def test_alert_mode_messages(tmp_path):
     t.poll()
     assert "BUY SBIN" in alerts[0] and "Stop-loss: ₹498.50" in alerts[0]
     assert "SELL / EXIT SBIN" in alerts[-1] and "stop-loss hit" in alerts[-1]
+
+
+def test_trade_log_row_lifecycle(tmp_path):
+    b = FakeBroker({"SBIN": 500.0})
+    b.name = "alerts"
+    t, alerts, rows = trader(tmp_path, b)
+    t.enter("SBIN", 100, 1.0, datetime(2026, 3, 2, 10, 0))
+    b.prices["SBIN"] = 498.0
+    t.poll()
+    log = [r for tab, r in rows if tab == "Trade_Log"]
+    opened, closed = log[0], log[-1]
+    assert opened["Status"] == "OPEN" and opened["Stock"] == "SBIN" and opened["Target (2R guide)"] == pytest.approx(503.0)
+    assert opened["Sell by"].endswith("15:10") and "stop-loss" in opened["When to sell"]
+    assert closed["ID"] == opened["ID"] and closed["Status"] == "CLOSED" and closed["Exit reason"] == "stop-loss hit"
+    assert closed["Net P&L ₹"] < 0 and closed["Sell price"] > 0

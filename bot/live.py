@@ -128,9 +128,21 @@ class Trader:
         self.save()
         if not self.place_stop(sym):
             return
+        tgt = round(avg + 2 * (avg - pos["stop"]), 2)
+        pos["target"] = tgt
+        self.save()
+        self.sheet("Trade_Log", {
+            "ID": tag, "Buy date": self.st["date"], "Buy time": pos["t"], "Stock": sym, "Qty": filled,
+            "Buy price": round(avg, 2), "Stop-loss (initial)": round(pos["stop"], 2),
+            "Stop-loss (current)": round(pos["stop"], 2), "Target (2R guide)": tgt,
+            "Risk ₹": round((avg - pos["stop"]) * filled, 2), "Sell by": f"{self.st['date']} {self.s['eod_exit']}",
+            "When to sell": "If price falls to the CURRENT stop-loss (it moves up as price rises), "
+                            f"or at {self.s['eod_exit']} today – whichever comes first",
+            "Status": "OPEN", "Mode": self.b.name})
         if self.b.name == "alerts":
             self.alert(f"📢 <b>BUY {sym}</b> now (market) ≈ ₹{avg:.2f}\nQty: {filled}  (risk ₹{(avg - pos['stop']) * filled:,.0f})"
                        f"\nStop-loss: ₹{pos['stop']:.2f} – place it in Angel One right after buying"
+                       f"\nTarget (guide, 2× risk): ₹{avg + 2 * (avg - pos['stop']):.2f}"
                        f"\nI'll tell you when to move the stop up or exit. Exit by 3:10 PM at the latest.")
         else:
             self.alert(f"🟢 <b>BUY {sym}</b> x{filled} @ ₹{avg:.2f}\nSL ₹{pos['stop']:.2f} (at broker, trails 1.5×ATR)"
@@ -176,6 +188,11 @@ class Trader:
         self.alert(head + f"\nNet P&L ₹{net:,.0f} (after costs)"
                    f" | Day ₹{self.risk.realised:,.0f}" + (f"\n⛔ New entries stopped: {self.risk.halted}" if self.risk.halted else ""))
         self.sheet("Trades", [row])
+        self.sheet("Trade_Log", {
+            "ID": p["tag"], "Status": "CLOSED", "Sell date": self.st["date"], "Sell time": str(self.clock())[11:16],
+            "Sell price": round(px, 2), "Exit reason": why, "Costs ₹": round(p["entry_cost"] + exit_cost, 2),
+            "Net P&L ₹": round(net, 2), "P&L %": round(net / (p["entry"] * p["qty"]) * 100, 2),
+            "Stop-loss (current)": round(p["stop"], 2)})
 
     def exit_position(self, sym, reason):
         p = self.st["positions"].get(sym)
@@ -298,6 +315,7 @@ class Trader:
                     self.alert(f"⬆️ {sym}: move your stop-loss UP to ₹{trig:.2f} (was ₹{p['stop']:.2f})"
                                if self.b.name == "alerts" else f"⬆️ {sym} SL ₹{p['stop']:.2f} → ₹{trig:.2f}")
                     p["stop"] = trig
+                    self.sheet("Trade_Log", {"ID": p["tag"], "Stop-loss (current)": trig})
                 except Exception as e:
                     self.alert(f"⚠️ {sym} SL modify failed ({e}) – old stop ₹{p['stop']:.2f} still active")
         self.save()

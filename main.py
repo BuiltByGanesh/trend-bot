@@ -24,7 +24,7 @@ try:
 except ImportError:
     pass
 
-from bot.notify import sheet, telegram  # noqa: E402
+from bot.notify import sheet, sheet_upsert, telegram  # noqa: E402
 
 
 def angel_login():
@@ -110,7 +110,8 @@ def do_live(cfg, until=None):
         return yahoo(sym, 5)
 
     Trader(cfg, broker, feed, lambda m: telegram(m, cfg["telegram"]["enabled"]),
-           lambda tab, rows: sheet(tab, rows, cfg["sheet"]["enabled"])).run(stop_at=until)
+           lambda tab, rows: (sheet_upsert if isinstance(rows, dict) else sheet)(tab, rows, cfg["sheet"]["enabled"])
+           ).run(stop_at=until)
 
 
 def do_daemon(cfg):
