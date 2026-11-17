@@ -1,0 +1,68 @@
+{
+  "date": "2026-11-17",
+  "positions": {},
+  "signals_done": [
+    "HDFCBANK|202611171010",
+    "RELIANCE|202611171105",
+    "BHARTIARTL|202611171210"
+  ],
+  "last_candle": "2026-11-17 15:00:00",
+  "eod_done": true,
+  "stale_alerted": false,
+  "risk": {
+    "realised": -927.608084685789,
+    "entries": 3,
+    "consec_losses": 3,
+    "halted": "3 consecutive losses",
+    "flatten": false,
+    "per_stock": {
+      "HDFCBANK": 1,
+      "RELIANCE": 1,
+      "BHARTIARTL": 1
+    }
+  },
+  "closed": [
+    [
+      "2026-11-17",
+      "HDFCBANK",
+      "10:19",
+      820.25,
+      "10:26",
+      816.41,
+      88,
+      "STOP",
+      817.41,
+      72.71,
+      -410.63,
+      "alerts"
+    ],
+    [
+      "2026-11-17",
+      "RELIANCE",
+      "11:10",
+      1345.6,
+      "11:16",
+      1342.9,
+      74,
+      "STOP",
+      1342.43,
+      82.47,
+      -282.27,
+      "alerts"
+    ],
+    [
+      "2026-11-17",
+      "BHARTIARTL",
+      "12:16",
+      2163.65,
+      "12:34",
+      2160.25,
+      45,
+      "STOP",
+      2158.21,
+      81.7,
+      -234.7,
+      "alerts"
+    ]
+  ]
+}
