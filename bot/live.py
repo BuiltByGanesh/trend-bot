@@ -331,7 +331,7 @@ class Trader:
         if stale or self.risk.flatten:
             return
 
-        mkt = sg.market_filter(proxy.loc[:bar_start], s.get("market_min_move_pct", 0.0))
+        mkt = sg.market_filter(proxy.loc[:bar_start], s.get("market_min_move_pct"))
         for sym, df in fresh.items():
             if sym in self.st["positions"] or self.risk.can_enter(sym, s):
                 continue

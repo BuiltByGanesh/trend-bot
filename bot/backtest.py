@@ -33,7 +33,7 @@ def run(data: dict, proxy: pd.DataFrame, cfg: dict, sc: Scenario = Scenario()):
 
     bm = s["bar_minutes"]
     proxy = sg.resample(proxy, bm)
-    mkt_ok = sg.market_filter(proxy, s.get("market_min_move_pct", 0.0))
+    mkt_ok = sg.market_filter(proxy, s.get("market_min_move_pct"))
     rows, sig = {}, {}
     for sym, df in data.items():
         p = sg.prepare(sg.resample(df, bm), s)

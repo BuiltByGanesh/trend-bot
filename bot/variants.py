@@ -17,7 +17,7 @@ GRID = dict(
     stop=[("atr", 1.5), ("atr", 3.0), ("or_low", 3.0)],
     target_r=[0, 1.5, 2, 3],
     trail_stop_atr=[0, 3.0],
-    market_min_move_pct=[0.0, 0.3],
+    market_min_move_pct=[0.0, 0.3],   # 0 = Nifty at least flat on the day
 )
 MIN_IS_TRADES = 30
 

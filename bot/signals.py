@@ -49,11 +49,13 @@ def prepare(df: pd.DataFrame, s: dict) -> pd.DataFrame:
     return df
 
 
-def market_filter(proxy: pd.DataFrame, min_move_pct: float = 0.0) -> pd.Series:
-    """True where the Nifty proxy is above its session VWAP and (optionally) up at least min_move_pct on the day."""
+def market_filter(proxy: pd.DataFrame, min_move_pct=None) -> pd.Series:
+    """True where the Nifty proxy is above its session VWAP; if min_move_pct is set, also up at least that much on the day."""
+    ok = proxy["close"] > vwap(proxy)
+    if min_move_pct is None:
+        return ok
     day_open = proxy["open"].groupby(proxy.index.date).transform("first")
-    up = (proxy["close"] / day_open - 1) * 100 >= min_move_pct
-    return (proxy["close"] > vwap(proxy)) & up
+    return ok & ((proxy["close"] / day_open - 1) * 100 >= min_move_pct)
 
 
 def signal_mask(df: pd.DataFrame, mkt_ok: pd.Series, s: dict, vol_mult=None) -> pd.Series:

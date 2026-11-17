@@ -148,8 +148,8 @@ def test_or_low_stop_and_target_and_no_trail():
 
 def test_market_strength_filter():
     p = make(5, days=3)
-    loose, strict = sg.market_filter(p, 0.0), sg.market_filter(p, 0.5)
-    assert strict.sum() <= loose.sum()
+    base, flat, strict = sg.market_filter(p), sg.market_filter(p, 0.0), sg.market_filter(p, 0.5)
+    assert strict.sum() <= flat.sum() <= base.sum()
 
 
 def test_variant_backtest_has_target_exits(bt):
