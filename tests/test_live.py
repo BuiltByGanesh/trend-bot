@@ -207,3 +207,15 @@ def test_trade_log_row_lifecycle(tmp_path):
     assert opened["Sell by"].endswith("15:10") and "stop-loss" in opened["When to sell"]
     assert closed["ID"] == opened["ID"] and closed["Status"] == "CLOSED" and closed["Exit reason"] == "stop-loss hit"
     assert closed["Net P&L ₹"] < 0 and closed["Sell price"] > 0
+
+
+def test_live_target_exit(tmp_path):
+    b = FakeBroker({"SBIN": 500.0})
+    b.name = "alerts"
+    t, alerts, rows = trader(tmp_path, b)
+    t.s.update(target_r=2, trail_stop_atr=0)
+    t.enter("SBIN", 100, 1.0, datetime(2026, 3, 2, 10, 0))
+    assert "Target: ₹503.00" in alerts[0]
+    b.prices["SBIN"] = 503.2
+    t.poll()
+    assert t.st["closed"][0][7] == "TARGET" and "target reached" in alerts[-1]

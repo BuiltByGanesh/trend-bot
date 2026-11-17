@@ -80,6 +80,53 @@ def do_backtest(cfg):
                               for r in tr.itertuples(index=False)], on)
 
 
+def load_history(cfg):
+    from bot.data import AngelData, history
+    ab = angel_login() if cfg["data_source"] == "angel" else None
+    angel = AngelData(ab.smart, ab.token) if ab else None
+    src = "angel" if angel else "yahoo"
+    days = cfg["backtest"]["days"] if angel else 59
+    data = history(cfg["watchlist"], days, src, angel)
+    proxy = history([cfg["market_proxy"]], days, src, angel).get(cfg["market_proxy"])
+    return data, proxy, src
+
+
+def do_variants(cfg):
+    import yaml as _y
+    from bot.variants import search
+    data, proxy, src = load_history(cfg)
+    if proxy is None or not data:
+        telegram("❌ Variant test: no data", cfg["telegram"]["enabled"])
+        sys.exit(1)
+    table, pick, verdict, stress, cut, cfgs = search(data, proxy, cfg, log=log.info)
+    os.makedirs("reports", exist_ok=True)
+    table.to_csv("reports/variants.csv", index=False)
+    top = table.head(15)
+    md = [f"# Variant search ({src}, {len(table)} variants)\n",
+          f"Ranked on in-sample days only; out-of-sample starts {cut}.\n",
+          top.to_markdown(index=False), f"\n**Pick (best in-sample):** `{pick}` → **{verdict}**\n"]
+    for k, v in stress.items():
+        md.append(f"- {k}: {v['trades']} trades, ₹{v['net_pnl']:,.0f}, PF {v['profit_factor']}")
+    cur = table[table.variant == "current_rules"].iloc[0]
+    md.append(f"\nCurrent rules for comparison: IS ₹{cur.is_net:,.0f}, OOS ₹{cur.oos_net:,.0f}")
+    open("reports/variants.md", "w").write("\n".join(md))
+    print("\n".join(md))
+    if pick:
+        _y.safe_dump(cfgs[pick]["strategy"], open("reports/best_strategy.yaml", "w"), sort_keys=False)
+        r = table.set_index("variant").loc[pick]
+        msg = (f"🧪 <b>Variant test – {len(table)} versions, 1 year</b>\nBest on first 70% of days: <code>{pick}</code>\n"
+               f"First 70%: {int(r.is_trades)} trades ₹{r.is_net:,.0f} (PF {r.is_pf})\n"
+               f"Unseen last 30%: {int(r.oos_trades)} trades ₹{r.oos_net:,.0f} (PF {r.oos_pf}, WR {r.oos_wr}%)\n"
+               f"Slippage ×2: ₹{stress['slippage_x2']['net_pnl']:,.0f}\nVerdict: <b>{verdict}</b>\n"
+               f"Current rules: ₹{cur.full_net:,.0f} over the year")
+        telegram(msg, cfg["telegram"]["enabled"])
+        run_id = datetime.now().strftime("%Y-%m-%d %H:%M")
+        sheet("Backtest", [[run_id, f"VARIANT {row.variant}", f"IS/OOS cut {cut}", row.is_trades + row.oos_trades,
+                            row.full_net, round(row.full_net / cfg['risk']['capital'] * 100, 2), row.oos_wr,
+                            row.oos_pf, "", row.full_dd, row.costs, f"IS ₹{row.is_net:,.0f} | OOS ₹{row.oos_net:,.0f}"]
+                           for row in top.itertuples()], cfg["sheet"]["enabled"])
+
+
 def do_live(cfg, until=None):
     from bot.broker import PaperBroker
     from bot.data import AngelData, yahoo
@@ -134,7 +181,7 @@ def do_daemon(cfg):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["backtest", "live", "daemon", "test-telegram", "test-sheet"])
+    ap.add_argument("cmd", choices=["backtest", "variants", "live", "daemon", "test-telegram", "test-sheet"])
     ap.add_argument("--until", help="HH:MM – end this session early (handover, positions stay protected)")
     ap.add_argument("--config", default="config.yaml")
     a = ap.parse_args()
@@ -143,6 +190,8 @@ def main():
         os.environ["SHEET_WEBHOOK_URL"] = cfg["sheet"]["webhook_url"]
     if a.cmd == "backtest":
         do_backtest(cfg)
+    elif a.cmd == "variants":
+        do_variants(cfg)
     elif a.cmd == "live":
         do_live(cfg, a.until)
     elif a.cmd == "daemon":

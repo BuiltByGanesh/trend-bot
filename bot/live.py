@@ -88,7 +88,7 @@ class Trader:
         return sum(p["entry"] * p["qty"] for p in self.st["positions"].values())
 
     # ---------- entries ----------
-    def enter(self, sym, qty, atr, sig_ts):
+    def enter(self, sym, qty, atr, sig_ts, orl=None):
         key = f"{sym}|{sig_ts:%Y%m%d%H%M}"
         if key in self.st["signals_done"]:
             log.info("duplicate signal %s ignored", key)
@@ -120,7 +120,7 @@ class Trader:
             self.alert(f"⚠️ {sym} partial fill {filled}/{qty} – rest cancelled, stop covers {filled}")
         avg = float(o["avg"])
         self.risk.record_entry(sym)
-        stop = avg - self.s["initial_stop_atr"] * atr
+        stop = sg.initial_stop(avg, atr, orl if orl is not None else float("nan"), self.s)
         pos = dict(qty=filled, entry=avg, stop=stop, init_stop=stop, highest=avg, t=str(self.clock())[11:16],
                    sl_id=None, tag=tag, nth=self.risk.per_stock[sym],
                    entry_cost=order_cost(avg * filled, "BUY", self.c))
@@ -128,22 +128,26 @@ class Trader:
         self.save()
         if not self.place_stop(sym):
             return
-        tgt = round(avg + 2 * (avg - pos["stop"]), 2)
-        pos["target"] = tgt
+        real_tgt = sg.target_price(avg, pos["stop"], self.s)
+        tgt = round(real_tgt or avg + 2 * (avg - pos["stop"]), 2)
+        pos["target"], pos["target_live"] = tgt, bool(real_tgt)
         self.save()
         self.sheet("Trade_Log", {
             "ID": tag, "Buy date": self.st["date"], "Buy time": pos["t"], "Stock": sym, "Qty": filled,
             "Buy price": round(avg, 2), "Stop-loss (initial)": round(pos["stop"], 2),
             "Stop-loss (current)": round(pos["stop"], 2), "Target (2R guide)": tgt,
             "Risk ₹": round((avg - pos["stop"]) * filled, 2), "Sell by": f"{self.st['date']} {self.s['eod_exit']}",
-            "When to sell": "If price falls to the CURRENT stop-loss (it moves up as price rises), "
-                            f"or at {self.s['eod_exit']} today – whichever comes first",
+            "When to sell": ("At the target, " if pos.get("target_live") else "")
+                            + "if price falls to the CURRENT stop-loss"
+                            + (" (it moves up as price rises)" if self.s.get("trail_stop_atr") else "")
+                            + f", or at {self.s['eod_exit']} today – whichever comes first",
             "Status": "OPEN", "Mode": self.b.name})
         if self.b.name == "alerts":
             self.alert(f"📢 <b>BUY {sym}</b> now (market) ≈ ₹{avg:.2f}\nQty: {filled}  (risk ₹{(avg - pos['stop']) * filled:,.0f})"
                        f"\nStop-loss: ₹{pos['stop']:.2f} – place it in Angel One right after buying"
-                       f"\nTarget (guide, 2× risk): ₹{avg + 2 * (avg - pos['stop']):.2f}"
-                       f"\nI'll tell you when to move the stop up or exit. Exit by 3:10 PM at the latest.")
+                       + (f"\nTarget: ₹{pos['target']:.2f} – I'll tell you to sell when it's reached" if pos.get("target_live")
+                          else f"\nTarget (guide, 2× risk): ₹{pos['target']:.2f}")
+                       + f"\nI'll tell you when to move the stop up or exit. Exit by 3:10 PM at the latest.")
         else:
             self.alert(f"🟢 <b>BUY {sym}</b> x{filled} @ ₹{avg:.2f}\nSL ₹{pos['stop']:.2f} (at broker, trails 1.5×ATR)"
                        f"\nRisk ₹{(avg - pos['stop']) * filled:,.0f} | entry #{pos['nth']} | {self.b.name}")
@@ -181,7 +185,8 @@ class Trader:
         self.st["closed"].append(row)
         self.save()
         why = {"STOP": "stop-loss hit", "TRAIL_STOP": "trailing stop-loss hit – profit locked",
-               "STOP_GAP": "price fell through the stop-loss", "EOD": "end of day (3:10 PM) – don't hold overnight",
+               "STOP_GAP": "price fell through the stop-loss",
+               "TARGET": "target reached – book the profit", "EOD": "end of day (3:10 PM) – don't hold overnight",
                "DAILY_LOSS_LIMIT": "daily loss limit reached – no more trades today"}.get(reason, reason)
         head = f"📢 <b>SELL / EXIT {sym}</b> now ≈ ₹{px:.2f}\nReason: {why}" if self.b.name == "alerts" \
             else f"🔴 <b>SELL {sym}</b> x{p['qty']} @ ₹{px:.2f} – {reason}"
@@ -269,6 +274,9 @@ class Trader:
                 except Exception:
                     continue
                 p["last"] = px
+                if p.get("target_live") and px >= p["target"]:
+                    self.exit_position(sym, "TARGET")
+                    continue
                 _, lim = self._sl_prices(sym, p["stop"])
                 if px < lim:  # gapped through the SL-limit: it won't fill, so exit now
                     self.alert(f"🚨 {sym} ₹{px:.2f} gapped below SL limit ₹{lim:.2f} – exiting at market")
@@ -290,6 +298,7 @@ class Trader:
                 frames[sym] = self.feed(sym)
             except Exception as e:
                 log.warning("feed %s: %s", sym, e)
+        frames = {k: sg.resample(v, s["bar_minutes"]) for k, v in frames.items()}
         proxy = frames.pop(self.cfg["market_proxy"], None)
         fresh = {k: v for k, v in frames.items() if len(v) and v.index[-1] >= bar_start}
         stale = proxy is None or not len(proxy) or proxy.index[-1] < bar_start
@@ -322,7 +331,7 @@ class Trader:
         if stale or self.risk.flatten:
             return
 
-        mkt = sg.market_filter(proxy.loc[:bar_start])
+        mkt = sg.market_filter(proxy.loc[:bar_start], s.get("market_min_move_pct", 0.0))
         for sym, df in fresh.items():
             if sym in self.st["positions"] or self.risk.can_enter(sym, s):
                 continue
@@ -337,10 +346,10 @@ class Trader:
             if spread > self.L["max_spread_pct"]:
                 log.info("%s signal skipped: spread %.3f%%", sym, spread)
                 continue
-            est_stop = row.close - s["initial_stop_atr"] * row.atr
+            est_stop = sg.initial_stop(row.close, row.atr, row.orl, s)
             qty = sg.size_position(row.close, est_stop, self.r["capital"], self.open_risk(), self.open_value(), self.r)
             if qty >= 1:
-                self.enter(sym, qty, float(row.atr), bar_start)
+                self.enter(sym, qty, float(row.atr), bar_start, float(row.orl))
 
     # ---------- main loop ----------
     def run(self, stop_at: str = None):

@@ -128,3 +128,35 @@ def test_full_report_sections(bt):
     for k in ["base", "in_sample", "out_of_sample", "sideways_days", "trending_days",
               "slippage_x2", "slippage_x3", "costs_x1.5", "entry_delayed_1_bar"]:
         assert k in out
+
+
+def test_resample_15min_aligned():
+    df = make(3, days=2)
+    r = sg.resample(df, 15)
+    assert r.index[0].strftime("%H:%M") == "09:15" and r.index[1].strftime("%H:%M") == "09:30"
+    first = df.loc[df.index[0]: df.index[2]]
+    assert r.iloc[0].high == first.high.max() and r.iloc[0].volume == pytest.approx(first.volume.sum())
+
+
+def test_or_low_stop_and_target_and_no_trail():
+    s = dict(S, stop_mode="or_low", target_r=2, trail_stop_atr=0)
+    assert sg.initial_stop(100, 1.0, 98.0, s) == pytest.approx(97.9)       # below OR low
+    assert sg.initial_stop(100, 1.0, 99.5, s) == pytest.approx(98.5)       # never tighter than 1.5 ATR
+    assert sg.target_price(100, 98, s) == pytest.approx(104)
+    assert sg.trail(98, 120, 1, s) == 98
+
+
+def test_market_strength_filter():
+    p = make(5, days=3)
+    loose, strict = sg.market_filter(p, 0.0), sg.market_filter(p, 0.5)
+    assert strict.sum() <= loose.sum()
+
+
+def test_variant_backtest_has_target_exits(bt):
+    data, proxy = bt
+    cfg = yaml.safe_load(open("config.yaml"))
+    cfg["strategy"].update(stop_mode="or_low", initial_stop_atr=3, target_r=1, trail_stop_atr=0, bar_minutes=15)
+    trades, daily = run(data, proxy, cfg)
+    assert len(trades) and (trades.reason == "TARGET").any()
+    tg = trades[trades.reason == "TARGET"]
+    assert (tg.exit >= tg.entry).all()

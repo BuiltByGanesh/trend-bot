@@ -31,10 +31,12 @@ def run(data: dict, proxy: pd.DataFrame, cfg: dict, sc: Scenario = Scenario()):
     stop_slip = (c["slippage_pct"] + c["stop_slippage_pct"]) / 100 * sc.slip_mult
     cost = lambda v, side: order_cost(v, side, c) * sc.cost_mult
 
-    mkt_ok = sg.market_filter(proxy)
+    bm = s["bar_minutes"]
+    proxy = sg.resample(proxy, bm)
+    mkt_ok = sg.market_filter(proxy, s.get("market_min_move_pct", 0.0))
     rows, sig = {}, {}
     for sym, df in data.items():
-        p = sg.prepare(df, s)
+        p = sg.prepare(sg.resample(df, bm), s)
         sig[sym] = sg.signal_mask(p, mkt_ok, s)
         rows[sym] = p
     days = sorted(set().union(*[set(p.index.date) for p in rows.values()]))
@@ -76,10 +78,13 @@ def run(data: dict, proxy: pd.DataFrame, cfg: dict, sc: Scenario = Scenario()):
                     continue
                 row = bars[sym][0].loc[t]
                 fill = row.open * (1 + slip)
-                stop = fill - s["initial_stop_atr"] * pe["atr"]
+                stop = sg.initial_stop(fill, pe["atr"], pe["orl"], s)
+                if stop >= fill:
+                    continue
                 ec = cost(fill * pe["qty"], "BUY")
                 pos[sym] = dict(qty=pe["qty"], entry=fill, stop=stop, init_stop=stop, highest=fill, t=t,
-                                entry_cost=ec, risk_rs=(fill - stop) * pe["qty"], nth=pe["nth"], last=fill)
+                                entry_cost=ec, risk_rs=(fill - stop) * pe["qty"], nth=pe["nth"], last=fill,
+                                target=sg.target_price(fill, stop, s))
 
             # 2. end-of-day exit
             if sg.is_eod(t, s):
@@ -95,9 +100,11 @@ def run(data: dict, proxy: pd.DataFrame, cfg: dict, sc: Scenario = Scenario()):
                     continue
                 row = bars[sym][0].loc[t]
                 p = pos[sym]
-                if row.low <= p["stop"]:
+                if row.low <= p["stop"]:   # stop checked first (conservative when both touch)
                     px = min(p["stop"], row.open) * (1 - stop_slip)
                     close_pos(sym, px, "TRAIL_STOP" if p["stop"] > p["entry"] else "STOP", t)
+                elif p["target"] and row.high >= p["target"]:   # limit sell at target
+                    close_pos(sym, max(p["target"], row.open), "TARGET", t)
 
             # 4a. candle complete: trail stops, mark to market
             unreal = 0.0
@@ -123,7 +130,7 @@ def run(data: dict, proxy: pd.DataFrame, cfg: dict, sc: Scenario = Scenario()):
                 if not mask[i] or risk.can_enter(sym, s):
                     continue
                 row = dp.iloc[i]
-                est_stop = row.close - s["initial_stop_atr"] * row.atr
+                est_stop = sg.initial_stop(row.close, row.atr, row.orl, s)
                 open_risk = sum(max(0.0, (p["entry"] - p["stop"]) * p["qty"]) for p in pos.values()) + \
                     sum(q["risk"] for q in pending.values())
                 open_val = sum(p["entry"] * p["qty"] for p in pos.values()) + sum(q["val"] for q in pending.values())
@@ -131,7 +138,7 @@ def run(data: dict, proxy: pd.DataFrame, cfg: dict, sc: Scenario = Scenario()):
                 if qty < 1:
                     continue
                 risk.record_entry(sym)
-                pending[sym] = dict(qty=qty, atr=row.atr, fill_idx=i + 1 + sc.entry_delay_bars,
+                pending[sym] = dict(qty=qty, atr=row.atr, orl=row.orl, fill_idx=i + 1 + sc.entry_delay_bars,
                                     risk=(row.close - est_stop) * qty, val=row.close * qty, nth=risk.per_stock[sym])
 
         for sym in list(pos):  # data ended before the EOD candle

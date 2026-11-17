@@ -19,8 +19,17 @@ def _t(s: str) -> time:
     return time(int(h), int(m))
 
 
+def resample(df: pd.DataFrame, minutes: int) -> pd.DataFrame:
+    """5-min candles -> N-min candles (aligned to 09:15)."""
+    if minutes == 5 or df.empty:
+        return df
+    out = df.resample(f"{minutes}min", origin="start_day", offset="15min").agg(
+        {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}).dropna()
+    return out[(out.index.time >= time(9, 15)) & (out.index.time < time(15, 30))]
+
+
 def prepare(df: pd.DataFrame, s: dict) -> pd.DataFrame:
-    """Add indicator columns to one symbol's 5-min OHLCV."""
+    """Add indicator columns to one symbol's OHLCV (already at s['bar_minutes'])."""
     df = df.sort_index().copy()
     bar = timedelta(minutes=s["bar_minutes"])
     d = df.index.date
@@ -34,14 +43,17 @@ def prepare(df: pd.DataFrame, s: dict) -> pd.DataFrame:
     orh = df["high"].where(in_or).groupby(d).transform("max")
     after_or = (df.index + bar).time > or_end
     df["orh"] = orh.where(after_or)
+    df["orl"] = df["low"].where(in_or).groupby(d).transform("min").where(after_or)
     df["prev_close"] = df["close"].groupby(d).shift(1)
     df["close_time"] = df.index + bar
     return df
 
 
-def market_filter(proxy: pd.DataFrame) -> pd.Series:
-    """True where the Nifty proxy closed above its session VWAP."""
-    return proxy["close"] > vwap(proxy)
+def market_filter(proxy: pd.DataFrame, min_move_pct: float = 0.0) -> pd.Series:
+    """True where the Nifty proxy is above its session VWAP and (optionally) up at least min_move_pct on the day."""
+    day_open = proxy["open"].groupby(proxy.index.date).transform("first")
+    up = (proxy["close"] / day_open - 1) * 100 >= min_move_pct
+    return (proxy["close"] > vwap(proxy)) & up
 
 
 def signal_mask(df: pd.DataFrame, mkt_ok: pd.Series, s: dict, vol_mult=None) -> pd.Series:
@@ -71,9 +83,23 @@ def size_position(entry: float, stop: float, capital: float, open_risk: float, o
     return max(qty, 0)
 
 
+def initial_stop(entry: float, atr: float, orl: float, s: dict) -> float:
+    """'atr': entry - k*ATR.  'or_low': just below the opening-range low (never tighter than k*ATR)."""
+    atr_stop = entry - s["initial_stop_atr"] * atr
+    if s.get("stop_mode", "atr") == "or_low" and orl == orl and orl:
+        return min(orl - 0.1 * atr, atr_stop)
+    return atr_stop
+
+
+def target_price(entry: float, stop: float, s: dict) -> float:
+    r = s.get("target_r", 0) or 0
+    return entry + r * (entry - stop) if r > 0 else 0.0
+
+
 def trail(stop: float, highest: float, atr_now: float, s: dict) -> float:
-    """Ratchet only upward."""
-    return max(stop, highest - s["trail_stop_atr"] * atr_now)
+    """Ratchet only upward. trail_stop_atr 0 = no trailing (stop stays put)."""
+    k = s.get("trail_stop_atr", 0) or 0
+    return max(stop, highest - k * atr_now) if k > 0 else stop
 
 
 def is_eod(ts, s: dict) -> bool:
