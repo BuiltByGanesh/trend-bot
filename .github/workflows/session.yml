@@ -5,9 +5,14 @@ on:
   workflow_dispatch:
     inputs:
       until: {description: "Hand over at HH:MM (blank = run to EOD)", default: ""}
+  # GitHub sometimes skips or delays a scheduled run, so each session has two triggers.
+  # Extra triggers just queue behind the running session; one that starts after the
+  # 15:10 close sees the day is done and exits in seconds.
   schedule:
-    - cron: "35 3 * * 1-5"   # 09:05 IST  -> session 1, hands over at 12:00
-    - cron: "20 6 * * 1-5"   # 11:50 IST  -> session 2 (waits for session 1), runs to EOD
+    - cron: "30 3 * * 1-5"   # 09:00 IST
+    - cron: "42 3 * * 1-5"   # 09:12 IST (backup)
+    - cron: "10 6 * * 1-5"   # 11:40 IST
+    - cron: "22 6 * * 1-5"   # 11:52 IST (backup)
 concurrency: {group: paper-session, cancel-in-progress: false}
 permissions: {contents: write}
 jobs:
@@ -31,8 +36,10 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Trade
         run: |
+          git pull -q --rebase origin main || true          # latest state from the previous session
           UNTIL="${{ github.event.inputs.until }}"
-          if [ "${{ github.event.schedule }}" = "35 3 * * 1-5" ]; then UNTIL="12:00"; fi
+          # morning session hands over at 12:00 (a job may run 6h max); afternoon one runs to the close
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "$(date +%H%M)" -lt 1130 ]; then UNTIL="12:00"; fi
           python main.py live ${UNTIL:+--until $UNTIL}
       - name: Save state for the next session
         if: always()
