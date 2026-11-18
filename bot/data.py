@@ -28,24 +28,27 @@ def yahoo(symbol: str, days: int = 59, minutes: int = 5) -> pd.DataFrame:
 
 
 class AngelData:
-    def __init__(self, smart, token_of):
-        self.smart, self.token_of = smart, token_of
+    def __init__(self, smart, token_of, pace=0.4):
+        self.smart, self.token_of, self.pace = smart, token_of, pace
 
     def candles(self, symbol: str, start: datetime, end: datetime, minutes: int = 5) -> pd.DataFrame:
         """Angel allows ~100 days of 5-min data per request, so fetch in chunks."""
         frames, cur = [], start
         while cur < end:
             nxt = min(cur + timedelta(days=90), end)
-            for attempt in range(3):
+            for attempt in range(8):
                 try:
                     res = self.smart.getCandleData({
                         "exchange": "NSE", "symboltoken": self.token_of(symbol),
                         "interval": ANGEL_INTERVAL[minutes],
                         "fromdate": cur.strftime("%Y-%m-%d %H:%M"), "todate": nxt.strftime("%Y-%m-%d %H:%M")})
+                    if isinstance(res, dict) and not res.get("status", True) and "rate" in str(res.get("message", "")).lower():
+                        raise RuntimeError(res.get("message"))
                     break
                 except Exception as e:
-                    log.warning("Angel candles %s retry %d: %s", symbol, attempt + 1, e)
-                    _time.sleep(1.5)
+                    wait = 5 * (attempt + 1) if "rate" in str(e).lower() else 1.5
+                    log.warning("Angel candles %s retry %d (wait %ss): %s", symbol, attempt + 1, wait, str(e)[:80])
+                    _time.sleep(wait)
             else:
                 raise RuntimeError(f"Angel candles failed for {symbol}")
             rows = (res or {}).get("data") or []
@@ -57,13 +60,13 @@ class AngelData:
                 f.index = pd.DatetimeIndex(ts)
                 frames.append(f)
             cur = nxt
-            _time.sleep(0.4)  # stay under SmartAPI rate limits
+            _time.sleep(self.pace)  # stay under SmartAPI rate limits
         if not frames:
             raise RuntimeError(f"Angel returned no candles for {symbol}")
         return _clean(pd.concat(frames))
 
 
-def history(symbols, days, source, angel=None, minutes=5) -> dict:
+def history(symbols, days, source, angel=None, minutes=5, allow_fallback=True) -> dict:
     end = datetime.now()
     start = end - timedelta(days=days)
     out = {}
@@ -74,6 +77,9 @@ def history(symbols, days, source, angel=None, minutes=5) -> dict:
             else:
                 out[sym] = yahoo(sym, days, minutes)
         except Exception as e:
+            if not allow_fallback:
+                log.error("%s: Angel failed (%s) – left out (no mixing with 59-day Yahoo data)", sym, e)
+                continue
             log.warning("%s: %s – trying Yahoo", sym, e)
             try:
                 out[sym] = yahoo(sym, days, minutes)

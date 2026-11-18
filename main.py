@@ -84,12 +84,13 @@ def do_backtest(cfg):
 def load_history(cfg, all_syms=False):
     from bot.data import AngelData, history
     ab = angel_login() if cfg["data_source"] == "angel" else None
-    angel = AngelData(ab.smart, ab.token) if ab else None
+    angel = AngelData(ab.smart, ab.token, pace=1.0) if ab else None
     src = "angel" if angel else "yahoo"
     days = cfg["backtest"]["days"] if angel else 59
+    strict = angel is not None   # never mix 1-year Angel data with 59-day Yahoo data
+    proxy = history([cfg["market_proxy"]], days, src, angel, allow_fallback=not strict).get(cfg["market_proxy"])
     syms = list(cfg["watchlist"]) + (list(cfg.get("watchlist_extra", [])) if all_syms or cfg.get("universe") == "all" else [])
-    data = history(syms, days, src, angel)
-    proxy = history([cfg["market_proxy"]], days, src, angel).get(cfg["market_proxy"])
+    data = history(syms, days, src, angel, allow_fallback=not strict)
     return data, proxy, src
 
 
