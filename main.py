@@ -137,7 +137,7 @@ def do_watch(cfg):
     from bot.live import now_ist
     from bot.watch import message, scan
     now = now_ist()
-    if now.weekday() >= 5 or not ("09:30" <= now.strftime("%H:%M") <= "15:30"):
+    if not os.getenv("WATCH_FORCE") and (now.weekday() >= 5 or not ("09:30" <= now.strftime("%H:%M") <= "15:30")):
         print("Market closed – no watchlist.")
         return
     ab = angel_login()
