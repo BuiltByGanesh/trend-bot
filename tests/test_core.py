@@ -160,3 +160,24 @@ def test_variant_backtest_has_target_exits(bt):
     assert len(trades) and (trades.reason == "TARGET").any()
     tg = trades[trades.reason == "TARGET"]
     assert (tg.exit >= tg.entry).all()
+
+
+def test_relative_strength_mode():
+    # stock up 1% on the day while Nifty proxy is down 0.5% -> RS = 1.5% passes a 0.5% threshold
+    prev = pd.date_range("2026-02-02 09:15", "2026-02-02 15:25", freq="5min")
+    today = pd.date_range("2026-02-03 09:15", "2026-02-03 10:00", freq="5min")
+    idx = prev.append(today)
+    nifty = pd.DataFrame(dict(open=100.0, high=100.1, low=99.9, close=100.0, volume=1e5), index=idx)
+    nifty.loc[today, "close"] = 99.5
+    stock = pd.DataFrame(dict(open=50.0, high=50.1, low=49.9, close=50.0, volume=1e5), index=idx)
+    stock.loc[today, "close"] = 50.5
+    chg = sg.day_change_pct(nifty)
+    assert chg[today[-1]] == pytest.approx(-0.5)
+    s = dict(S, market_mode="rs", rs_min_pct=0.5)
+    p = sg.prepare(stock, s)
+    p["orh"], p["prev_close"], p["vwap"], p["vol_avg"] = 50.4, 50.3, 50.0, 1.0   # isolate the market leg
+    p["ema_f"], p["ema_s"] = 2.0, 1.0
+    m = sg.signal_mask(p, pd.Series(False, index=p.index), s, proxy_chg=chg)
+    assert m[today[-1]]                        # passes even though Nifty filter series says False
+    s2 = dict(s, rs_min_pct=2.0)
+    assert not sg.signal_mask(p, pd.Series(False, index=p.index), s2, proxy_chg=chg)[today[-1]]

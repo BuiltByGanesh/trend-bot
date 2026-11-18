@@ -332,11 +332,12 @@ class Trader:
             return
 
         mkt = sg.market_filter(proxy.loc[:bar_start], s.get("market_min_move_pct"))
+        proxy_chg = sg.day_change_pct(proxy.loc[:bar_start])
         for sym, df in fresh.items():
             if sym in self.st["positions"] or self.risk.can_enter(sym, s):
                 continue
             d = sg.prepare(df.loc[:bar_start], s)
-            if d.index[-1] != bar_start or not bool(sg.signal_mask(d.iloc[-60:], mkt, s).iloc[-1]):
+            if d.index[-1] != bar_start or not bool(sg.signal_mask(d, mkt, s, proxy_chg=proxy_chg).iloc[-1]):
                 continue
             row = d.iloc[-1]
             try:

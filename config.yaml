@@ -5,11 +5,18 @@ data_source: angel       # angel | yahoo  (yahoo only has ~60 days of 5-min data
 
 # Liquid large caps with tight spreads
 watchlist: [RELIANCE, HDFCBANK, ICICIBANK, INFY, TCS, SBIN, LT, AXISBANK, KOTAKBANK, BHARTIARTL, ITC, HINDUNILVR]
+# Extra liquid F&O names (PSU banks, metals, energy...) – used when universe: all
+watchlist_extra: [PNB, BANKBARODA, CANBK, UNIONBANK, SAIL, TATASTEEL, HINDALCO, VEDL, NMDC, COALINDIA, ONGC, NTPC,
+                  POWERGRID, BEL, BHEL, IOC, BPCL, GAIL, TATAPOWER, IDFCFIRSTB, ETERNAL, WIPRO, HCLTECH, M&M,
+                  SUNPHARMA, BAJFINANCE, ADANIPORTS, JSWSTEEL]
+universe: core           # core = watchlist only | all = watchlist + watchlist_extra
 # Nifty 50 has no volume, so its VWAP can't be computed. NIFTYBEES (a Nifty ETF) stands in for it.
 market_proxy: NIFTYBEES
 
 strategy:
   bar_minutes: 5
+  market_mode: vwap            # vwap = Nifty above VWAP | rs = stock beats Nifty's day % change by rs_min_pct
+  rs_min_pct: 0.5
   opening_range_end: "09:30"   # first 15-min high = high of the 09:15, 09:20, 09:25 candles
   entry_window: ["09:30", "14:30"]   # signal candle must CLOSE inside this window
   ema_fast: 9

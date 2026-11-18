@@ -58,13 +58,26 @@ def market_filter(proxy: pd.DataFrame, min_move_pct=None) -> pd.Series:
     return ok & ((proxy["close"] / day_open - 1) * 100 >= min_move_pct)
 
 
-def signal_mask(df: pd.DataFrame, mkt_ok: pd.Series, s: dict, vol_mult=None) -> pd.Series:
+def day_change_pct(df: pd.DataFrame) -> pd.Series:
+    """% change vs the previous day's last close (NaN on the first day)."""
+    d = pd.Series(df.index.date, index=df.index)
+    last = df["close"].groupby(df.index.date).last()
+    prev = pd.Series(last.shift(1).to_numpy(), index=last.index)
+    return (df["close"] / d.map(prev) - 1) * 100
+
+
+def signal_mask(df: pd.DataFrame, mkt_ok: pd.Series, s: dict, vol_mult=None, proxy_chg: pd.Series = None) -> pd.Series:
     w0, w1 = _t(s["entry_window"][0]), _t(s["entry_window"][1])
     ct = df["close_time"].dt.time
     fresh_breakout = (df["close"] > df["orh"]) & (df["prev_close"] <= df["orh"])
     trend = (df["close"] > df["vwap"]) & (df["ema_f"] > df["ema_s"])
     volume = df["volume"] > (vol_mult or s["volume_mult"]) * df["vol_avg"]
-    market = mkt_ok.reindex(df.index).fillna(False).astype(bool)
+    if s.get("market_mode", "vwap") == "rs":
+        # relative strength: stock's day % change beats Nifty's by rs_min_pct (Nifty itself may be weak)
+        nifty = proxy_chg.reindex(df.index).ffill()
+        market = (day_change_pct(df) - nifty >= s.get("rs_min_pct", 0.5)).fillna(False)
+    else:
+        market = mkt_ok.reindex(df.index).fillna(False).astype(bool)
     window = (ct >= w0) & (ct <= w1)
     return (fresh_breakout & trend & volume & market & window).fillna(False)
 

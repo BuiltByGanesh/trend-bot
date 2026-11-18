@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       days: {description: "Days of 5-min history (Angel)", default: "365"}
-      job: {description: "backtest | variants", default: "backtest"}
+      job: {description: "backtest | variants | variants-rs", default: "backtest"}
   schedule:
     - cron: "37 4 * * 6"   # Saturday 10:07 IST – weekly re-check on the newest data
 jobs:

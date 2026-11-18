@@ -44,7 +44,8 @@ def do_backtest(cfg):
     angel = AngelData(ab.smart, ab.token) if ab else None
     src = "angel" if angel else "yahoo"
     days = b["days"] if angel else 59
-    data = history(cfg["watchlist"], days, src, angel)
+    syms = list(cfg["watchlist"]) + (list(cfg.get("watchlist_extra", [])) if all_syms or cfg.get("universe") == "all" else [])
+    data = history(syms, days, src, angel)
     proxy = history([cfg["market_proxy"]], days, src, angel).get(cfg["market_proxy"])
     if proxy is None or not data:
         telegram("❌ Backtest: no data", cfg["telegram"]["enabled"])
@@ -80,25 +81,27 @@ def do_backtest(cfg):
                               for r in tr.itertuples(index=False)], on)
 
 
-def load_history(cfg):
+def load_history(cfg, all_syms=False):
     from bot.data import AngelData, history
     ab = angel_login() if cfg["data_source"] == "angel" else None
     angel = AngelData(ab.smart, ab.token) if ab else None
     src = "angel" if angel else "yahoo"
     days = cfg["backtest"]["days"] if angel else 59
-    data = history(cfg["watchlist"], days, src, angel)
+    syms = list(cfg["watchlist"]) + (list(cfg.get("watchlist_extra", [])) if all_syms or cfg.get("universe") == "all" else [])
+    data = history(syms, days, src, angel)
     proxy = history([cfg["market_proxy"]], days, src, angel).get(cfg["market_proxy"])
     return data, proxy, src
 
 
-def do_variants(cfg):
+def do_variants(cfg, grid="default"):
     import yaml as _y
     from bot.variants import search
-    data, proxy, src = load_history(cfg)
+    data, proxy, src = load_history(cfg, all_syms=(grid == "rs"))
+    log.info("loaded %d symbols: %s", len(data), ", ".join(sorted(data)))
     if proxy is None or not data:
         telegram("❌ Variant test: no data", cfg["telegram"]["enabled"])
         sys.exit(1)
-    table, pick, verdict, stress, cut, cfgs = search(data, proxy, cfg, log=log.info)
+    table, pick, verdict, stress, cut, cfgs = search(data, proxy, cfg, log=log.info, grid=grid)
     os.makedirs("reports", exist_ok=True)
     table.to_csv("reports/variants.csv", index=False)
     top = table.head(15)
@@ -112,7 +115,8 @@ def do_variants(cfg):
     open("reports/variants.md", "w").write("\n".join(md))
     print("\n".join(md))
     if pick:
-        _y.safe_dump(cfgs[pick]["strategy"], open("reports/best_strategy.yaml", "w"), sort_keys=False)
+        _y.safe_dump({"universe": cfgs[pick].get("universe", "core"), "strategy": cfgs[pick]["strategy"]},
+                     open("reports/best_strategy.yaml", "w"), sort_keys=False)
         r = table.set_index("variant").loc[pick]
         msg = (f"🧪 <b>Variant test – {len(table)} versions, 1 year</b>\nBest on first 70% of days: <code>{pick}</code>\n"
                f"First 70%: {int(r.is_trades)} trades ₹{r.is_net:,.0f} (PF {r.is_pf})\n"
@@ -156,6 +160,8 @@ def do_live(cfg, until=None):
             return angel.candles(sym, end - timedelta(days=7), end)
         return yahoo(sym, 5)
 
+    if cfg.get("universe") == "all":
+        cfg["watchlist"] = list(cfg["watchlist"]) + [x for x in cfg.get("watchlist_extra", []) if x not in cfg["watchlist"]]
     Trader(cfg, broker, feed, lambda m: telegram(m, cfg["telegram"]["enabled"]),
            lambda tab, rows: (sheet_upsert if isinstance(rows, dict) else sheet)(tab, rows, cfg["sheet"]["enabled"])
            ).run(stop_at=until)
@@ -181,7 +187,7 @@ def do_daemon(cfg):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["backtest", "variants", "live", "daemon", "test-telegram", "test-sheet"])
+    ap.add_argument("cmd", choices=["backtest", "variants", "variants-rs", "live", "daemon", "test-telegram", "test-sheet"])
     ap.add_argument("--until", help="HH:MM – end this session early (handover, positions stay protected)")
     ap.add_argument("--config", default="config.yaml")
     a = ap.parse_args()
@@ -192,6 +198,8 @@ def main():
         do_backtest(cfg)
     elif a.cmd == "variants":
         do_variants(cfg)
+    elif a.cmd == "variants-rs":
+        do_variants(cfg, grid="rs")
     elif a.cmd == "live":
         do_live(cfg, a.until)
     elif a.cmd == "daemon":
