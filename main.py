@@ -164,6 +164,47 @@ def do_watch(cfg):
     print(message(n, rows, w.get("min_rs_pct", 1.0)))
 
 
+def do_swing(cfg):
+    from bot.data import AngelData, daily_history
+    from bot.swing import search
+    sw = cfg["swing"]
+    ab = angel_login()
+    angel = AngelData(ab.smart, ab.token, pace=0.6) if ab else None
+    nifty = daily_history([cfg["market_proxy"]], sw["years"], angel).get(cfg["market_proxy"])
+    syms = list(cfg["watchlist"]) + [x for x in cfg.get("watchlist_extra", []) if x not in cfg["watchlist"]]
+    data = daily_history(syms, sw["years"], angel)
+    if nifty is None or not data:
+        telegram("❌ Swing test: no data", cfg["telegram"]["enabled"])
+        sys.exit(1)
+    log.info("daily data: %d symbols, %s → %s", len(data), min(d.index[0] for d in data.values()).date(),
+             max(d.index[-1] for d in data.values()).date())
+    table, pick, verdict, stress, cut, (b_is, b_oos), yearly, trades = search(data, nifty, cfg, log=log.info)
+    os.makedirs("reports", exist_ok=True)
+    table.to_csv("reports/swing_variants.csv", index=False)
+    trades.to_csv("reports/swing_trades.csv", index=False)
+    cols = ["setup", "is_trades", "is_cagr", "is_pf", "is_win_rate", "is_max_dd", "oos_trades", "oos_cagr", "oos_pf",
+            "oos_win_rate", "oos_max_dd", "oos_avg_days"]
+    md = [f"# Swing test – {len(data)} stocks, {sw['years']}y daily, delivery costs\n",
+          f"Out-of-sample starts {cut.date()}. Nifty (NIFTYBEES) buy & hold: IS {b_is['cagr']}%/yr (DD {b_is['max_dd']}%), "
+          f"OOS {b_oos['cagr']}%/yr (DD {b_oos['max_dd']}%)\n", table[cols].to_markdown(index=False),
+          f"\n**Pick (best in-sample):** {pick} → **{verdict}**"]
+    md += [f"- {k} (OOS): {v.get('trades')} trades, {v.get('cagr')}%/yr, PF {v.get('pf')}" for k, v in stress.items()]
+    if yearly is not None:
+        md.append("\nYear by year (pick): " + ", ".join(f"{y}: {v:+.1f}%" for y, v in yearly.items()))
+    open("reports/swing_report.md", "w").write("\n".join(md))
+    print("\n".join(md))
+    r = table.set_index("setup").loc[pick]
+    telegram(f"📈 <b>Swing test – {len(data)} stocks, {sw['years']} years</b>\nBest on first 70%: <b>{pick}</b>\n"
+             f"First 70%: {int(r.is_trades)} trades, {r.is_cagr}%/yr, PF {r.is_pf}\n"
+             f"Unseen last 30%: {int(r.oos_trades)} trades, {r.oos_cagr}%/yr, PF {r.oos_pf}, win {r.oos_win_rate}%, "
+             f"max drawdown {r.oos_max_dd}%\nNifty buy & hold same unseen period: {b_oos['cagr']}%/yr\n"
+             f"Slippage ×2: {stress['slippage_x2'].get('cagr')}%/yr\nVerdict: <b>{verdict}</b>", cfg["telegram"]["enabled"])
+    run_id = datetime.now().strftime("%Y-%m-%d %H:%M")
+    sheet("Backtest", [[run_id, f"SWING {x.setup}", f"OOS from {cut.date()}", x.is_trades + x.oos_trades,
+                        "", x.oos_cagr, x.oos_win_rate, x.oos_pf, "", x.oos_max_dd, "",
+                        f"IS {x.is_cagr}%/yr | OOS {x.oos_cagr}%/yr"] for x in table.itertuples()], cfg["sheet"]["enabled"])
+
+
 def do_live(cfg, until=None):
     from bot.broker import PaperBroker
     from bot.data import AngelData, yahoo
@@ -231,6 +272,8 @@ def main():
         do_backtest(cfg)
     elif a.cmd == "variants":
         do_variants(cfg)
+    elif a.cmd == "swing":
+        do_swing(cfg)
     elif a.cmd == "watch":
         do_watch(cfg)
     elif a.cmd == "variants-rs":

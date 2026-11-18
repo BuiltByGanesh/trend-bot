@@ -66,6 +66,27 @@ backtest:
   out_of_sample_pct: 30        # last 30% of days are unseen data
   sideways_efficiency: 0.3     # |close-open| / (high-low) of the market proxy below this = sideways day
 
+swing:                         # daily-candle swing test (2-15 day holds, delivery)
+  years: 5
+  out_of_sample_pct: 30
+  risk:
+    capital: 100000
+    risk_per_trade_pct: 1.0
+    max_positions: 5
+    max_position_pct: 25         # of equity, no leverage
+  costs:                         # Angel One equity delivery (verify on angelone.in/pricing)
+    brokerage_flat: 20
+    brokerage_pct: 0.1
+    brokerage_min: 5
+    stt_pct: 0.1                 # buy and sell
+    exchange_txn_pct: 0.0030699
+    sebi_pct: 0.0001
+    stamp_buy_pct: 0.015
+    gst_pct: 18
+    dp_charge: 20                # per sell, + GST
+    slippage_pct: 0.05
+    stop_slippage_pct: 0.1
+
 watch:                         # "stronger than Nifty" list – information only
   min_rs_pct: 1.0              # stock's day % must beat Nifty's by this much
   top: 8

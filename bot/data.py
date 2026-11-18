@@ -86,3 +86,62 @@ def history(symbols, days, source, angel=None, minutes=5, allow_fallback=True) -
             except Exception as e2:
                 log.error("%s: no data (%s)", sym, e2)
     return out
+
+
+def _clean_daily(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.rename(columns=str.lower)[["open", "high", "low", "close", "volume"]].dropna()
+    idx = pd.DatetimeIndex(df.index)
+    if idx.tz is not None:
+        idx = idx.tz_convert("Asia/Kolkata").tz_localize(None)
+    df.index = idx.normalize()
+    return df[~df.index.duplicated(keep="last")].sort_index().astype(float)
+
+
+def yahoo_daily(symbol: str, years: int = 5) -> pd.DataFrame:
+    import yfinance as yf
+    df = yf.download(f"{symbol}.NS", period=f"{years}y", interval="1d", progress=False,
+                     auto_adjust=True, multi_level_index=False)
+    if df.empty:
+        raise RuntimeError(f"Yahoo returned no daily data for {symbol}")
+    return _clean_daily(df)
+
+
+def daily_history(symbols, years, angel=None) -> dict:
+    """Daily candles. Angel ONE_DAY first (2000 days per request); Yahoo (split-adjusted) as fallback."""
+    end = datetime.now()
+    start = end - timedelta(days=int(years * 365.25))
+    out = {}
+    for sym in symbols:
+        try:
+            if not angel:
+                raise RuntimeError("no Angel login")
+            frames, cur = [], start
+            while cur < end:
+                nxt = min(cur + timedelta(days=1900), end)
+                for attempt in range(8):
+                    try:
+                        res = angel.smart.getCandleData({
+                            "exchange": "NSE", "symboltoken": angel.token_of(sym), "interval": "ONE_DAY",
+                            "fromdate": cur.strftime("%Y-%m-%d 09:15"), "todate": nxt.strftime("%Y-%m-%d 15:30")})
+                        if isinstance(res, dict) and not res.get("status", True) and "rate" in str(res.get("message", "")).lower():
+                            raise RuntimeError(res.get("message"))
+                        break
+                    except Exception as e:
+                        _time.sleep(5 * (attempt + 1) if "rate" in str(e).lower() else 1.5)
+                else:
+                    raise RuntimeError("Angel daily failed")
+                rows = (res or {}).get("data") or []
+                if rows:
+                    f = pd.DataFrame(rows, columns=["time", "open", "high", "low", "close", "volume"])
+                    f.index = pd.to_datetime(f.pop("time"))
+                    frames.append(f)
+                cur = nxt
+                _time.sleep(angel.pace)
+            out[sym] = _clean_daily(pd.concat(frames))
+        except Exception as e:
+            log.warning("%s daily via Angel failed (%s) – Yahoo", sym, str(e)[:60])
+            try:
+                out[sym] = yahoo_daily(sym, years)
+            except Exception as e2:
+                log.error("%s: no daily data (%s)", sym, e2)
+    return out
