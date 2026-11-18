@@ -132,6 +132,38 @@ def do_variants(cfg, grid="default"):
                            for row in top.itertuples()], cfg["sheet"]["enabled"])
 
 
+def do_watch(cfg):
+    from bot.data import AngelData, yahoo
+    from bot.live import now_ist
+    from bot.watch import message, scan
+    now = now_ist()
+    if now.weekday() >= 5 or not ("09:30" <= now.strftime("%H:%M") <= "15:30"):
+        print("Market closed – no watchlist.")
+        return
+    ab = angel_login()
+    angel = AngelData(ab.smart, ab.token, pace=0.5) if ab else None
+    syms = list(cfg["watchlist"]) + [x for x in cfg.get("watchlist_extra", []) if x not in cfg["watchlist"]]
+    def fetch(sym):
+        try:
+            return angel.candles(sym, now - timedelta(days=9), now) if angel else yahoo(sym, 7)
+        except Exception as e:
+            log.warning("%s: %s", sym, e)
+            return None
+    proxy = fetch(cfg["market_proxy"])
+    frames = {s: f for s in syms if (f := fetch(s)) is not None}
+    w = cfg.get("watch", {})
+    n, rows = scan(frames, proxy, w.get("min_rs_pct", 1.0), w.get("top", 8))
+    if n is None:
+        telegram("⚠️ Watchlist: no Nifty data", cfg["telegram"]["enabled"])
+        return
+    telegram(message(n, rows, w.get("min_rs_pct", 1.0)), cfg["telegram"]["enabled"])
+    sheet("Watchlist", [[f"{n['as_of']:%Y-%m-%d}", f"{n['as_of']:%H:%M}", r["sym"], round(r["price"], 2),
+                         round(r["chg"], 2), round(n["chg"], 2), round(r["rs"], 2), round(r["vwap"], 2),
+                         round(r["vol_x"], 2), round(r["day_high"], 2), round(r["from_high"], 2)] for r in rows],
+          cfg["sheet"]["enabled"])
+    print(message(n, rows, w.get("min_rs_pct", 1.0)))
+
+
 def do_live(cfg, until=None):
     from bot.broker import PaperBroker
     from bot.data import AngelData, yahoo
@@ -188,7 +220,7 @@ def do_daemon(cfg):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["backtest", "variants", "variants-rs", "live", "daemon", "test-telegram", "test-sheet"])
+    ap.add_argument("cmd", choices=["backtest", "variants", "variants-rs", "watch", "swing", "live", "daemon", "test-telegram", "test-sheet"])
     ap.add_argument("--until", help="HH:MM – end this session early (handover, positions stay protected)")
     ap.add_argument("--config", default="config.yaml")
     a = ap.parse_args()
@@ -199,6 +231,8 @@ def main():
         do_backtest(cfg)
     elif a.cmd == "variants":
         do_variants(cfg)
+    elif a.cmd == "watch":
+        do_watch(cfg)
     elif a.cmd == "variants-rs":
         do_variants(cfg, grid="rs")
     elif a.cmd == "live":

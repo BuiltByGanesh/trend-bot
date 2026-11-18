@@ -1,0 +1,28 @@
+# "Stronger than Nifty" watchlist on Telegram + Google Sheet. Information only, no buy calls.
+name: Watchlist
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "15 4 * * 1-5"   # 09:45 IST
+    - cron: "0 6 * * 1-5"    # 11:30 IST
+    - cron: "30 7 * * 1-5"   # 13:00 IST
+concurrency: {group: watchlist, cancel-in-progress: true}
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Kolkata
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      ANGEL_API_KEY: ${{ secrets.ANGEL_API_KEY }}
+      ANGEL_CLIENT_CODE: ${{ secrets.ANGEL_CLIENT_CODE }}
+      ANGEL_MPIN: ${{ secrets.ANGEL_MPIN }}
+      ANGEL_TOTP_SECRET: ${{ secrets.ANGEL_TOTP_SECRET }}
+      SHEET_WEBHOOK_URL: ${{ secrets.SHEET_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11", cache: pip}
+      - run: pip install -r requirements.txt
+      - run: python main.py watch

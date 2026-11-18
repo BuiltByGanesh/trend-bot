@@ -1,18 +1,10 @@
-# Sends Telegram BUY / EXIT suggestions all market day (mode in config.yaml), in two
-# back-to-back sessions because a GitHub job may run 6h max. Free on a public repo.
+# PAUSED: intraday BUY/EXIT suggestions lost money in every backtest (Nov 2026).
+# Schedule removed; can still be started by hand from the Actions tab.
 name: Trading session
 on:
   workflow_dispatch:
     inputs:
       until: {description: "Hand over at HH:MM (blank = run to EOD)", default: ""}
-  # GitHub sometimes skips or delays a scheduled run, so each session has two triggers.
-  # Extra triggers just queue behind the running session; one that starts after the
-  # 15:10 close sees the day is done and exits in seconds.
-  schedule:
-    - cron: "30 3 * * 1-5"   # 09:00 IST
-    - cron: "42 3 * * 1-5"   # 09:12 IST (backup)
-    - cron: "10 6 * * 1-5"   # 11:40 IST
-    - cron: "22 6 * * 1-5"   # 11:52 IST (backup)
 concurrency: {group: paper-session, cancel-in-progress: false}
 permissions: {contents: write}
 jobs:

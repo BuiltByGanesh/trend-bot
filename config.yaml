@@ -1,6 +1,7 @@
 # ===== Intraday 5-min opening-range breakout bot (NSE, Angel One MIS) =====
 # These are STARTING parameters to test, not proven settings.
-mode: alerts             # alerts = Telegram buy/exit suggestions only | paper | live (needs CONFIRM_LIVE=YES)
+mode: alerts             # (intraday session schedule is PAUSED – see session.yml)
+# alerts = Telegram buy/exit suggestions only | paper | live (needs CONFIRM_LIVE=YES)
 data_source: angel       # angel | yahoo  (yahoo only has ~60 days of 5-min data)
 
 # Liquid large caps with tight spreads
@@ -64,6 +65,10 @@ backtest:
   days: 365                    # Angel history; yahoo is capped at ~59
   out_of_sample_pct: 30        # last 30% of days are unseen data
   sideways_efficiency: 0.3     # |close-open| / (high-low) of the market proxy below this = sideways day
+
+watch:                         # "stronger than Nifty" list – information only
+  min_rs_pct: 1.0              # stock's day % must beat Nifty's by this much
+  top: 8
 
 telegram:
   enabled: true

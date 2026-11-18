@@ -11,6 +11,8 @@ const HEADERS = {
   Trade_Log: ['ID', 'Buy date', 'Buy time', 'Stock', 'Qty', 'Buy price', 'Stop-loss (initial)',
               'Stop-loss (current)', 'Target (2R guide)', 'Risk ₹', 'Sell by', 'When to sell', 'Status',
               'Sell date', 'Sell time', 'Sell price', 'Exit reason', 'Costs ₹', 'Net P&L ₹', 'P&L %', 'Mode'],
+  Watchlist: ['Date', 'Time', 'Stock', 'Price', 'Day %', 'Nifty %', 'vs Nifty', 'VWAP', 'Volume ×',
+              'Day high', '% below high'],
   Daily: ['Date', 'Trades', 'Winners', 'Net P&L ₹', 'Return %', 'Halted', 'Mode'],
   Backtest: ['Run', 'Section', 'Period', 'Trades', 'Net P&L ₹', 'Return %', 'Win rate %', 'Profit factor',
              'Avg R', 'Max DD %', 'Costs ₹', 'Halted days'],
