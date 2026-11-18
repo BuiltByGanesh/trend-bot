@@ -168,7 +168,7 @@ def do_swing(cfg):
     from bot.data import AngelData, daily_history
     from bot.swing import search
     sw = cfg["swing"]
-    ab = angel_login()
+    ab = angel_login() if sw.get("source") == "angel" else None
     angel = AngelData(ab.smart, ab.token, pace=0.6) if ab else None
     nifty = daily_history([cfg["market_proxy"]], sw["years"], angel).get(cfg["market_proxy"])
     syms = list(cfg["watchlist"]) + [x for x in cfg.get("watchlist_extra", []) if x not in cfg["watchlist"]]
@@ -191,6 +191,11 @@ def do_swing(cfg):
     md += [f"- {k} (OOS): {v.get('trades')} trades, {v.get('cagr')}%/yr, PF {v.get('pf')}" for k, v in stress.items()]
     if yearly is not None:
         md.append("\nYear by year (pick): " + ", ".join(f"{y}: {v:+.1f}%" for y, v in yearly.items()))
+    if len(trades):
+        md.append("\nWorst 8 trades (data sanity check):\n" + trades.nsmallest(8, "ret_pct")[
+            ["symbol", "entry_date", "entry", "exit_date", "exit", "reason", "ret_pct"]].to_markdown(index=False))
+        md.append(f"\nTrades: {len(trades)}, avg {trades.ret_pct.mean():.2f}% gross per trade, "
+                  f"avg cost ₹{trades.costs.mean():.0f}, total costs ₹{trades.costs.sum():,.0f}")
     open("reports/swing_report.md", "w").write("\n".join(md))
     print("\n".join(md))
     r = table.set_index("setup").loc[pick]
